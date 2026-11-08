@@ -50,9 +50,9 @@ jobs:
           cp "$APP/Frameworks/libqemu-aarch64-softmmu.dylib" build/ios-arm64/lib/
           cp "$APP/Frameworks/libhuskps4.dylib" build/ios-arm64/lib/
           cp "$APP/Frameworks/libANGLE-shared.dylib" build/ios-arm64/sysroot/lib/
-          lipo -verify_arch arm64 build/ios-arm64/lib/libqemu-aarch64-softmmu.dylib
-          lipo -verify_arch arm64 build/ios-arm64/lib/libhuskps4.dylib
-          lipo -verify_arch arm64 build/ios-arm64/sysroot/lib/libANGLE-shared.dylib
+          lipo build/ios-arm64/lib/libqemu-aarch64-softmmu.dylib -verify_arch arm64
+          lipo build/ios-arm64/lib/libhuskps4.dylib -verify_arch arm64
+          lipo build/ios-arm64/sysroot/lib/libANGLE-shared.dylib -verify_arch arm64
 
           MX=build/ios-arm64/lib/MoltenVK.xcframework
           rm -rf "$MX"
