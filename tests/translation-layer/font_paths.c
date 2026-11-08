@@ -21,6 +21,14 @@ int main(void) {
     snprintf(file, sizeof(file), "%s/Latin.ttf", fonts); FILE *f = fopen(file,"wb"); assert(f); fclose(f);
     tl_set_system_fonts_dir(root); tl_set_extra_fonts_dir(extra);
     setenv("ANDROID_ROOT", "/runtime/java-data", 1);
+    snprintf(file, sizeof(file), "%s/etc/fonts.xml", root);
+    check("/system/etc/fonts.xml", file);
+    check("/etc/fonts.xml", file);
+    snprintf(file, sizeof(file), "%s/etc/font_fallback.xml", root);
+    check("/system/etc/font_fallback.xml", file);
+    check("/etc/font_fallback.xml", file);
+    check("/etc/fonts.xml.bak", "/etc/fonts.xml.bak");
+    snprintf(file, sizeof(file), "%s/Latin.ttf", fonts);
     check("/system/fonts/Latin.ttf", file);
     check("/runtime/java-data/fonts/Latin.ttf", file);
     snprintf(file, sizeof(file), "%s/CJK.ttc", extra); f=fopen(file,"wb"); assert(f); fclose(f);

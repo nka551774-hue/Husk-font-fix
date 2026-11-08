@@ -195,7 +195,14 @@ const char *tl_path_resolve(const char *path, char *buf, size_t n)
             }
             return buf;
         }
-        if (!strcmp(path, "/system/etc/fonts.xml") || !strcmp(path, "/system/etc/font_fallback.xml")) { snprintf(buf, n, "%s/etc%s", g_sysfonts, path + 11); return buf; }
+        if (!strcmp(path, "/system/etc/fonts.xml") || !strcmp(path, "/system/etc/font_fallback.xml")) {
+            snprintf(buf, n, "%s/etc%s", g_sysfonts, path + 11);
+            return buf;
+        }
+        if (!strcmp(path, "/etc/fonts.xml") || !strcmp(path, "/etc/font_fallback.xml")) {
+            snprintf(buf, n, "%s/etc%s", g_sysfonts, path + 4);
+            return buf;
+        }
     }
     if (g_cacerts[0]) {
         static const char *const roots[] = { "/system/etc/security/cacerts", "/apex/com.android.conscrypt/cacerts" };
