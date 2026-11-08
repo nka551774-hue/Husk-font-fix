@@ -1,0 +1,134 @@
+name: Build Husk font fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          XC="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install host tools
+        run: |
+          set -euo pipefail
+          brew install xcodegen qemu
+          rustup target add aarch64-apple-ios
+
+      - name: Stage matching Husk 3.4 dependencies
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/Husk-3.4.ipa"
+          BASE="$RUNNER_TEMP/Husk-3.4"
+          curl -fL --retry 3 --retry-delay 5 \
+            -o "$IPA" \
+            https://github.com/Leviidev/Husk/releases/download/3.4/Husk.ipa
+          echo "3907f099d91411c24d703d825276102d2ba213c628cd6701fb977c25fe398fab  $IPA" \
+            | shasum -a 256 -c -
+
+          rm -rf "$BASE"
+          mkdir -p "$BASE"
+          ditto -x -k "$IPA" "$BASE"
+          APP="$BASE/Payload/Husk.app"
+          test -x "$APP/Husk"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "3.4"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "149"
+
+          mkdir -p build/ios-arm64/lib build/ios-arm64/sysroot/lib
+          cp "$APP/Frameworks/libqemu-aarch64-softmmu.dylib" build/ios-arm64/lib/
+          cp "$APP/Frameworks/libhuskps4.dylib" build/ios-arm64/lib/
+          cp "$APP/Frameworks/libANGLE-shared.dylib" build/ios-arm64/sysroot/lib/
+          lipo -verify_arch arm64 build/ios-arm64/lib/libqemu-aarch64-softmmu.dylib
+          lipo -verify_arch arm64 build/ios-arm64/lib/libhuskps4.dylib
+          lipo -verify_arch arm64 build/ios-arm64/sysroot/lib/libANGLE-shared.dylib
+
+          MX=build/ios-arm64/lib/MoltenVK.xcframework
+          rm -rf "$MX"
+          xcodebuild -create-xcframework \
+            -framework "$APP/Frameworks/MoltenVK.framework" \
+            -output "$MX"
+          test -f "$MX/Info.plist"
+
+          rm -rf build/android-system build/java-runtime guests/phase0
+          mkdir -p build guests/phase0
+          ditto "$APP/android-system" build/android-system
+          ditto "$APP/java-runtime" build/java-runtime
+          cp "$APP/vmlinuz-virt" "$APP/initramfs-virt" guests/phase0/
+
+          QBIOS=third_party/build/qemu-10.0.12-utm/pc-bios
+          rm -rf "$QBIOS"
+          mkdir -p "$QBIOS"
+          ditto "$APP/pc-bios" "$QBIOS"
+          bzip2 -c "$APP/edk2-aarch64-code.fd" > "$QBIOS/edk2-aarch64-code.fd.bz2"
+
+          test -f build/android-system/etc/fonts.xml
+          find build/android-system/fonts -type f -print -quit | grep -q .
+          test -f build/java-runtime/husk-framework.dex
+          test -f guests/phase0/vmlinuz-virt
+          test -f guests/phase0/initramfs-virt
+          find "$QBIOS" -type f \( -name 'efi-*.rom' -o -name 'pxe-*.rom' \) -print -quit | grep -q .
+          test -s "$QBIOS/edk2-aarch64-code.fd.bz2"
+
+      - name: Test font path fix
+        run: ./tests/translation-layer/run_font_paths.sh
+
+      - name: Build on-device pairing library
+        run: ./scripts/build_rppairing_ios.sh
+
+      - name: Build and package patched IPA
+        run: |
+          set -euo pipefail
+          DD="$RUNNER_TEMP/husk_ipa" ./scripts/package_ipa.sh "$PWD/build/Husk-font-fix.ipa"
+
+      - name: Verify artifact
+        run: |
+          set -euo pipefail
+          unzip -tq build/Husk-font-fix.ipa
+          V="$RUNNER_TEMP/verify-ipa"
+          rm -rf "$V"
+          mkdir -p "$V"
+          ditto -x -k build/Husk-font-fix.ipa "$V"
+          APP="$V/Payload/Husk.app"
+          test -x "$APP/Husk"
+          test -f "$APP/android-system/etc/fonts.xml"
+          grep -q 'NotoSansCJK-Regular.ttc' "$APP/android-system/etc/fonts.xml"
+          test -f "$APP/java-runtime/husk-framework.dex"
+          test -f "$APP/Frameworks/libhuskps4.dylib"
+          test -f "$APP/Frameworks/MoltenVK.framework/MoltenVK"
+          strings -a "$APP/Husk" | grep -Fx '/etc/fonts.xml'
+          EXPECTED="$(git rev-parse --short HEAD)"
+          ACTUAL="$(/usr/libexec/PlistBuddy -c 'Print :HuskBuildCommit' "$APP/Info.plist")"
+          test "$ACTUAL" = "$EXPECTED"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          (cd build && shasum -a 256 Husk-font-fix.ipa > Husk-font-fix.ipa.sha256)
+          cat build/Husk-font-fix.ipa.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Husk-font-fix-ipa
+          path: |
+            build/Husk-font-fix.ipa
+            build/Husk-font-fix.ipa.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: Husk-font-fix-build-logs
+          path: |
+            build/logs
+            ${{ runner.temp }}/husk_ipa/build.log
+          if-no-files-found: ignore
